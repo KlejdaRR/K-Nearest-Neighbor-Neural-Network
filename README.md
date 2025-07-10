@@ -65,4 +65,7 @@ This is the main class that implements the algorithm.
 This implementation is based on:
 - The Parzen Neural Networks paper (Trentin, 2019)
 - Standard kn-NN density estimation theory
-- Various neural network optimization techniques I learned in class
+- Various neural network optimization techniques we learned in class
+
+Work by: Klejda Rrapaj (k.rrapaj@student.unisi.it)
+Sildi Ricku (s.ricku@student.unisi.it)
