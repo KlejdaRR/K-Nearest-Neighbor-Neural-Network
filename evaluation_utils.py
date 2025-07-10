@@ -2,15 +2,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
 from sklearn.model_selection import GridSearchCV
-import warnings
-
-warnings.filterwarnings('ignore')
-
 
 class ModelEvaluator:
+    # Helper class for evaluating density estimation models
+    # We needed this to compare our results with the true PDF
+
 
     @staticmethod
     def integrated_squared_error(estimated_pdf, true_pdf, x_range, n_points=10000):
+        # Calculating ISE between estimated and true PDF
+        # This is one of the standard metrics for density estimation
+
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
         dx = (x_range[1] - x_range[0]) / n_points
 
@@ -24,6 +26,9 @@ class ModelEvaluator:
 
     @staticmethod
     def mean_absolute_error(estimated_pdf, true_pdf, x_range, n_points=10000):
+
+        # Calculating MAE - because it is easier to interpret than ISE
+
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
 
         estimated_vals = estimated_pdf(x_eval)
@@ -35,6 +40,9 @@ class ModelEvaluator:
 
     @staticmethod
     def kullback_leibler_divergence(estimated_pdf, true_pdf, x_range, n_points=10000):
+        # KL divergence - measures how much the estimated PDF differs from true PDF
+        # We Had some issues with numerical stability here, added epsilon to avoid log(0)
+
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
         dx = (x_range[1] - x_range[0]) / n_points
 
@@ -59,6 +67,9 @@ class ModelEvaluator:
 
     @staticmethod
     def check_normalization(pdf_func, x_range, n_points=10000):
+        # Checking if the PDF integrates to 1 (as it should)
+        # This helped us debug issues with our implementation
+
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
         pdf_vals = pdf_func(x_eval)
         integral = np.trapz(pdf_vals, x_eval)
@@ -66,12 +77,19 @@ class ModelEvaluator:
 
 
 class BaselineComparison:
+    # Comparing our kn-NN method with standard baseline methods
+    # With this we can know for sure if our approach actually works
+
+
     def __init__(self, data):
         self.data = data.reshape(-1, 1) if data.ndim == 1 else data
         self.fitted_models = {}
 
     def fit_parzen_window(self, bandwidth=None):
+        # Fitting Parzen window (KDE) with automatic bandwidth selection
+
         if bandwidth is None:
+            # Using cross-validation to find best bandwidth
             bandwidths = np.logspace(-2, 1, 20)
             grid = GridSearchCV(KernelDensity(kernel='gaussian'),
                                 {'bandwidth': bandwidths},
@@ -91,12 +109,16 @@ class BaselineComparison:
         return kde
 
     def fit_histogram(self, bins='auto'):
+        # Simple histogram-based density estimation
+
         if bins == 'auto':
+            # Use sqrt rule for number of bins
             bins = int(np.sqrt(len(self.data)))
 
         hist, bin_edges = np.histogram(self.data.flatten(), bins=bins, density=True)
 
         def histogram_pdf(x):
+            # Convert histogram to a function we can evaluate anywhere
             x = np.atleast_1d(x)
             result = np.zeros_like(x)
 
@@ -119,6 +141,8 @@ class BaselineComparison:
 
     def compare_all_methods(self, knn_model, true_pdf=None, x_range=None,
                             n_points=1000, figsize=(15, 10)):
+        # Comparing all methods side by side with quantitative metrics
+
         if x_range is None:
             x_min, x_max = self.data.min(), self.data.max()
             x_range = (x_min - 1, x_max + 1)
@@ -128,6 +152,7 @@ class BaselineComparison:
 
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
 
+        # Getting predictions from all methods
         knn_pred = knn_model.predict(x_eval)
         parzen_pred = np.exp(self.fitted_models['parzen']['model'].score_samples(x_eval.reshape(-1, 1)))
         hist_pred = self.fitted_models['histogram']['model'](x_eval)
@@ -141,6 +166,7 @@ class BaselineComparison:
             ('Histogram', hist_pred, 'purple')
         ]
 
+        # Plotting each method individually
         for i, (name, pred, color) in enumerate(methods):
             axes[i].plot(x_eval, pred, color=color, linewidth=2, label=name)
             if true_pdf is not None:
@@ -153,6 +179,7 @@ class BaselineComparison:
             axes[i].legend()
             axes[i].grid(True, alpha=0.3)
 
+        # Combined comparison plot
         axes[3].plot(x_eval, knn_pred, 'b-', linewidth=2, label='kn-NN Neural Network')
         axes[3].plot(x_eval, parzen_pred, 'g-', linewidth=2, label='Parzen Window')
         axes[3].plot(x_eval, hist_pred, 'm-', linewidth=2, label='Histogram')
@@ -169,6 +196,7 @@ class BaselineComparison:
         plt.tight_layout()
         plt.show()
 
+        # Printing quantitative comparison if we have the true PDF
         if true_pdf is not None:
             print("\nQuantitative Comparison:")
             print("-" * 50)
@@ -207,6 +235,7 @@ class BaselineComparison:
 
 
 class HyperparameterTuning:
+    # Automated hyperparameter tuning for the kn-NN Neural Network
 
     def __init__(self, data, true_pdf=None, x_range=None):
         self.data = data
@@ -215,6 +244,9 @@ class HyperparameterTuning:
 
     def tune_k1_parameter(self, k1_values=None, architecture=(50, 30),
                           max_iter=500, biased=False, verbose=True):
+        # Trying different k1 values to find the best one
+        # k1 controls how many neighbors we use
+
         if k1_values is None:
             k1_values = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0]
 
@@ -246,6 +278,7 @@ class HyperparameterTuning:
                     mae = evaluator.mean_absolute_error(model_pdf, self.true_pdf, self.x_range)
                     kl_div = evaluator.kullback_leibler_divergence(model_pdf, self.true_pdf, self.x_range)
                 else:
+                    # If we don't have true PDF, we use training loss as proxy
                     ise = model.mlp.loss_
                     mae = model.mlp.loss_
                     kl_div = model.mlp.loss_
@@ -269,6 +302,7 @@ class HyperparameterTuning:
                     print(f"k1={k1:.1f}: Failed - {str(e)}")
                 results[k1] = None
 
+        # Finding the best k1 based on ISE
         valid_results = {k: v for k, v in results.items() if v is not None}
         if valid_results:
             best_k1 = min(valid_results.keys(), key=lambda k: valid_results[k]['ise'])
@@ -283,16 +317,18 @@ class HyperparameterTuning:
 
     def tune_architecture(self, architectures=None, k1=1.0, max_iter=500,
                           biased=False, verbose=True):
+        # Trying different neural network architectures
+
         if architectures is None:
             architectures = [
-                (20,),
-                (50,),
-                (30, 20),
-                (50, 30),
-                (100, 50),
-                (50, 30, 20),
-                (100, 50, 25),
-                (30, 30, 30)
+                (20,),  # Single layer, small
+                (50,),  # Single layer, medium
+                (30, 20),  # Two layers, small
+                (50, 30),  # Two layers, medium - this seems to work well
+                (100, 50),  # Two layers, large
+                (50, 30, 20),  # Three layers
+                (100, 50, 25),  # Three layers, large
+                (30, 30, 30)  # Three layers, uniform
             ]
 
         results = {}
@@ -329,6 +365,10 @@ class HyperparameterTuning:
 
                 integral = evaluator.check_normalization(model_pdf, self.x_range)
 
+                # Counting parameters to see model complexity
+                n_params = sum([np.prod(layer.shape) for layer in model.mlp.coefs_]) + \
+                           sum([layer.shape[0] for layer in model.mlp.intercepts_])
+
                 results[arch] = {
                     'model': model,
                     'ise': ise,
@@ -336,12 +376,11 @@ class HyperparameterTuning:
                     'kl_div': kl_div,
                     'integral': integral,
                     'training_loss': model.mlp.loss_,
-                    'n_parameters': sum([np.prod(layer.shape) for layer in model.mlp.coefs_]) +
-                                    sum([layer.shape[0] for layer in model.mlp.intercepts_])
+                    'n_parameters': n_params
                 }
 
                 if verbose:
-                    print(f"{str(arch):15}: ISE={ise:.6f}, Parameters={results[arch]['n_parameters']}")
+                    print(f"{str(arch):15}: ISE={ise:.6f}, Parameters={n_params}")
 
             except Exception as e:
                 if verbose:
@@ -361,23 +400,28 @@ class HyperparameterTuning:
         return results, best_arch
 
     def comprehensive_tuning(self, verbose=True):
+        # Doing a comprehensive search over both k1 and architecture
+
         if verbose:
             print("=" * 60)
             print("Comprehensive Hyperparameter Tuning")
             print("=" * 60)
 
+        # Phase 1: Tuning k1 with default architecture
         k1_results, best_k1 = self.tune_k1_parameter(verbose=verbose)
 
         if verbose:
             print(f"\nPhase 1 complete. Best k1: {best_k1}")
             print("\n" + "=" * 60)
 
+        # Phase 2: Tuning architecture with best k1
         arch_results, best_arch = self.tune_architecture(k1=best_k1, verbose=verbose)
 
         if verbose:
             print(f"\nPhase 2 complete. Best architecture: {best_arch}")
             print("\n" + "=" * 60)
 
+        # Phase 3: Fine-tuning k1 around the best value
         k1_fine_values = np.linspace(max(0.1, best_k1 - 0.5), best_k1 + 0.5, 11)
         k1_fine_results, best_k1_fine = self.tune_k1_parameter(
             k1_values=k1_fine_values,
@@ -407,6 +451,8 @@ class ExperimentRunner:
 
     def run_sample_size_experiment(self, sample_sizes=None, k1=1.0,
                                    architecture=(50, 30), n_runs=5):
+        # Testing how performance changes with different sample sizes
+
         if sample_sizes is None:
             sample_sizes = [50, 100, 200, 400, 800]
 
@@ -422,8 +468,9 @@ class ExperimentRunner:
 
             run_results = []
 
+            # Doing multiple runs to get statistical significance
             for run in range(n_runs):
-                np.random.seed(run)
+                np.random.seed(run)  # Different seed for each run
                 indices = np.random.choice(len(self.data), n, replace=False)
                 subsample = self.data[indices]
 
@@ -458,6 +505,7 @@ class ExperimentRunner:
                 except Exception as e:
                     print(f"Failed for n={n}, run={run}: {str(e)}")
 
+            # Calculating statistics across runs
             if run_results:
                 ise_mean = np.mean([r['ise'] for r in run_results])
                 ise_std = np.std([r['ise'] for r in run_results])
@@ -477,6 +525,8 @@ class ExperimentRunner:
         return results
 
     def generate_final_report(self, model, comparison_methods=None):
+        # Generating a comprehensive report on the model performance
+
         print("=" * 80)
         print("FINAL EVALUATION REPORT")
         print("=" * 80)
@@ -489,6 +539,7 @@ class ExperimentRunner:
         print(f"  Training iterations: {model.mlp.n_iter_}")
         print(f"  Final training loss: {model.mlp.loss_:.6f}")
 
+        # Checking model properties
         x_eval = np.linspace(self.x_range[0], self.x_range[1], 1000)
         density_estimates = model.predict(x_eval)
 
@@ -500,6 +551,7 @@ class ExperimentRunner:
         print(f"  Non-negative outputs: {np.all(density_estimates >= 0)}")
         print(f"  Output range: [{density_estimates.min():.6f}, {density_estimates.max():.6f}]")
 
+        # Comparing with true PDF if available
         if self.true_pdf is not None:
             def model_pdf(x):
                 return model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
@@ -523,6 +575,7 @@ class ExperimentRunner:
 
 
 def save_model_results(model, filename, additional_data=None):
+    # Saving model
     import pickle
 
     save_data = {
@@ -556,6 +609,7 @@ def save_model_results(model, filename, additional_data=None):
 
 
 def load_model_results(filename):
+    # Loading previously saved model results
     import pickle
 
     with open(filename, 'rb') as f:
@@ -566,6 +620,7 @@ def load_model_results(filename):
 
 
 def evaluate_on_instructor_dataset(data_file_path, model_params=None):
+    # Evaluate of the algorithm on the instructor's dataset
 
     try:
         instructor_data = np.loadtxt(data_file_path)
@@ -589,6 +644,7 @@ def evaluate_on_instructor_dataset(data_file_path, model_params=None):
     tuner = HyperparameterTuning(instructor_data)
     tuning_results = tuner.comprehensive_tuning()
 
+    # Training the final model with optimal parameters
     print("\nTraining final model...")
     final_model = KnNNeuralNetwork(
         k1=tuning_results['best_k1'],
@@ -601,6 +657,7 @@ def evaluate_on_instructor_dataset(data_file_path, model_params=None):
     print("Training unbiased version...")
     final_model.fit(instructor_data, biased=False, validation_split=0.2, verbose=True)
 
+    # Also training biased version for comparison
     print("Training biased version for comparison...")
     biased_model = KnNNeuralNetwork(
         k1=tuning_results['best_k1'],
@@ -616,6 +673,7 @@ def evaluate_on_instructor_dataset(data_file_path, model_params=None):
 
     print("\nGenerating visualizations...")
 
+    # Comparing biased vs unbiased
     final_model.compare_biased_unbiased(instructor_data)
 
     final_model.plot_training_curves()
