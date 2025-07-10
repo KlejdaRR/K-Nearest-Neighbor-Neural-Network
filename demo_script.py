@@ -8,7 +8,11 @@ from evaluation_utils import (
     ExperimentRunner, evaluate_on_instructor_dataset
 )
 
+
 def basic_demonstration():
+    # Basic demo to show how the kn-NN neural network works
+    # We use this to quickly test if everything is working properly
+
 
     print("=" * 60)
     print("Basic kn-NN Neural Network Demonstration")
@@ -22,17 +26,16 @@ def basic_demonstration():
 
     print("\n2. Training kn-NN Neural Network...")
     model = KnNNeuralNetwork(
-        k1=1.0,
-        architecture=(50, 30),
-        max_iter=500,
-        learning_rate=0.001,
-        random_state=42
+        k1=1.0,  # This seems to work well for most cases
+        architecture=(50, 30),  # Two hidden layers - good balance
+        max_iter=500,  # Usually converges before this
+        learning_rate=0.001,  # Standard learning rate
+        random_state=42  # For reproducibility
     )
 
     model.fit(data, biased=False, validation_split=0.2, verbose=True)
 
     print("\n3. Visualizing results...")
-
     model.plot_training_curves()
 
     model.plot_density_estimate(
@@ -53,6 +56,8 @@ def basic_demonstration():
 
 
 def hyperparameter_tuning_demo():
+    # Showing how to do automatic hyperparameter tuning
+
 
     print("=" * 60)
     print("Hyperparameter Tuning Demonstration")
@@ -63,22 +68,25 @@ def hyperparameter_tuning_demo():
     tuner = HyperparameterTuning(data, true_pdf=true_pdf)
 
     print("Starting comprehensive hyperparameter tuning...")
+    print("This might take a few minutes...")
     tuning_results = tuner.comprehensive_tuning(verbose=True)
 
     print(f"\nTraining final model with optimal parameters:")
     print(f"  k1: {tuning_results['best_k1']}")
     print(f"  architecture: {tuning_results['best_architecture']}")
 
+    # Training the final optimized model
     final_model = KnNNeuralNetwork(
         k1=tuning_results['best_k1'],
         architecture=tuning_results['best_architecture'],
-        max_iter=1000,
+        max_iter=1000,  # Using more iterations for final model
         learning_rate=0.001,
         random_state=42
     )
 
     final_model.fit(data, biased=False, validation_split=0.2, verbose=True)
 
+    # Showing the optimized result
     final_model.plot_density_estimate(
         true_pdf=true_pdf,
         title=f"Optimized kn-NN (k1={tuning_results['best_k1']}, arch={tuning_results['best_architecture']})"
@@ -88,11 +96,14 @@ def hyperparameter_tuning_demo():
 
 
 def sample_size_experiment():
+    # Experimenting to see how performance changes with dataset size
+
 
     print("=" * 60)
     print("Sample Size Experiment")
     print("=" * 60)
 
+    # Generating a large dataset to subsample from
     data, true_pdf = generate_test_data('mixture', n_samples=1000, random_state=42)
 
     experiment_runner = ExperimentRunner(data, true_pdf=true_pdf)
@@ -109,7 +120,7 @@ def sample_size_experiment():
 
     plt.figure(figsize=(10, 6))
     plt.errorbar(sample_sizes, ise_means, yerr=ise_stds,
-                marker='o', capsize=5, capthick=2, linewidth=2)
+                 marker='o', capsize=5, capthick=2, linewidth=2)
     plt.xlabel('Sample Size')
     plt.ylabel('Integrated Squared Error')
     plt.title('Sample Size vs. ISE Performance')
@@ -120,6 +131,8 @@ def sample_size_experiment():
 
 
 def instructor_dataset_demo(data_path):
+    # Evaluating on the instructor's dataset
+
 
     print("=" * 60)
     print("Instructor Dataset Evaluation")
@@ -140,6 +153,7 @@ def instructor_dataset_demo(data_path):
 
 
 def full_experiments():
+    # Running all experiments
 
     print("=" * 80)
     print("COMPREHENSIVE kn-NN NEURAL NETWORK EXPERIMENTS")
@@ -164,6 +178,7 @@ def full_experiments():
     print("EXPERIMENT 4: Different Distributions")
     print("=" * 40)
 
+    # Testing on various distributions to see generalization
     distributions = ['normal', 'exponential', 'uniform', 'mixture']
 
     for dist in distributions:
@@ -196,6 +211,12 @@ def main():
         description='kn-NN Neural Network Demonstration',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Examples:
+  python demo_script.py                           # Basic demo
+  python demo_script.py --full_experiments        # Run all experiments
+  python demo_script.py --instructor_data data.txt # Evaluating on instructor's data
+  python demo_script.py --hyperparameter_tuning   # Just hyperparameter tuning
+  python demo_script.py --distribution normal --k1 1.5  # Custom parameters
         """
     )
 
@@ -259,6 +280,7 @@ def main():
         print("Error: Invalid architecture format. Use comma-separated integers like '50,30'")
         return
 
+    # Route to appropriate function based on arguments
     if args.instructor_data:
         instructor_dataset_demo(args.instructor_data)
 
@@ -272,6 +294,7 @@ def main():
         sample_size_experiment()
 
     else:
+        # Default: basic demonstration with custom parameters
         print("=" * 60)
         print(f"Basic Demonstration - {args.distribution.capitalize()} Distribution")
         print("=" * 60)
@@ -282,6 +305,7 @@ def main():
         print(f"  Architecture: {architecture}")
         print()
 
+        # Generating test data
         data, true_pdf = generate_test_data(
             args.distribution,
             n_samples=args.n_samples,
@@ -296,6 +320,7 @@ def main():
             random_state=42
         )
 
+        # Training the model
         model.fit(data, biased=False, validation_split=0.2, verbose=True)
 
         model.plot_training_curves()
@@ -313,9 +338,6 @@ if __name__ == "__main__":
     plt.rcParams['figure.figsize'] = [10, 6]
     plt.rcParams['font.size'] = 10
     plt.rcParams['lines.linewidth'] = 2
-
-    import warnings
-    warnings.filterwarnings('ignore')
 
     try:
         main()
