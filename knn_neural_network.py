@@ -176,6 +176,29 @@ class KnNNeuralNetwork:
 
         return predictions
 
+    def plot_training_curves(self, figsize=(12, 4)):
+        # Plotting the training curves to see how well the model converged
+        fig, axes = plt.subplots(1, 2, figsize=figsize)
+
+        if self.training_history['loss']:
+            axes[0].plot(self.training_history['loss'], label='Training Loss')
+            axes[0].set_xlabel('Iteration')
+            axes[0].set_ylabel('Loss')
+            axes[0].set_title('Training Loss Curve')
+            axes[0].legend()
+            axes[0].grid(True)
+
+        if self.training_history['validation_loss']:
+            axes[1].plot(self.training_history['validation_loss'], label='Validation Score')
+            axes[1].set_xlabel('Iteration')
+            axes[1].set_ylabel('Validation Score')
+            axes[1].set_title('Validation Score Curve')
+            axes[1].legend()
+            axes[1].grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
     def plot_density_estimate(self, x_range=None, n_points=1000, true_pdf=None,
                               figsize=(12, 6), title="Improved Density Estimation"):
         if x_range is None and self.data_range is not None:
@@ -209,7 +232,7 @@ class KnNNeuralNetwork:
         axes[0].legend()
         axes[0].grid(True, alpha=0.3)
 
-        integral = np.trapz(density_estimates, x_eval)
+        integral = np.trapezoid(density_estimates, x_eval)
         axes[0].text(0.05, 0.95, f'∫PDF ≈ {integral:.3f}',
                      transform=axes[0].transAxes,
                      bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
@@ -226,4 +249,62 @@ class KnNNeuralNetwork:
         plt.show()
 
         return integral
+
+    def compare_biased_unbiased(self, X, x_range=None, n_points=1000,
+                                true_pdf=None, figsize=(12, 5)):
+        # Comparing biased vs unbiased versions side by side
+        # Training of biased version
+        model_biased = KnNNeuralNetwork(
+            k1=self.k1, architecture=self.architecture,
+            max_iter=self.max_iter, learning_rate=self.learning_rate,
+            random_state=self.random_state, alpha=self.alpha
+        )
+        model_biased.fit(X, biased=True, verbose=False)
+
+        # Training of unbiased version
+        model_unbiased = KnNNeuralNetwork(
+            k1=self.k1, architecture=self.architecture,
+            max_iter=self.max_iter, learning_rate=self.learning_rate,
+            random_state=self.random_state, alpha=self.alpha
+        )
+        model_unbiased.fit(X, biased=False, verbose=False)
+
+        if x_range is None:
+            x_min, x_max = X.min(), X.max()
+            x_range = (x_min - 0.5, x_max + 0.5)
+
+        x_eval = np.linspace(x_range[0], x_range[1], n_points)
+
+        fig, axes = plt.subplots(1, 2, figsize=figsize)
+
+        # Plotting of biased version
+        density_biased = model_biased.predict(x_eval)
+        axes[0].plot(x_eval, density_biased, 'b-', linewidth=2, label='Biased kn-NN')
+        if true_pdf is not None:
+            axes[0].plot(x_eval, true_pdf(x_eval), 'r--', linewidth=2, label='True PDF')
+        axes[0].scatter(X.flatten(), np.zeros_like(X.flatten()),
+                        alpha=0.6, s=20, c='orange', label='Training Data')
+        axes[0].set_title('Biased kn-NN Neural Network')
+        axes[0].set_xlabel('x')
+        axes[0].set_ylabel('Density')
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
+
+        # Plotting of unbiased version
+        density_unbiased = model_unbiased.predict(x_eval)
+        axes[1].plot(x_eval, density_unbiased, 'g-', linewidth=2, label='Unbiased kn-NN')
+        if true_pdf is not None:
+            axes[1].plot(x_eval, true_pdf(x_eval), 'r--', linewidth=2, label='True PDF')
+        axes[1].scatter(X.flatten(), np.zeros_like(X.flatten()),
+                        alpha=0.6, s=20, c='orange', label='Training Data')
+        axes[1].set_title('Unbiased kn-NN Neural Network')
+        axes[1].set_xlabel('x')
+        axes[1].set_ylabel('Density')
+        axes[1].legend()
+        axes[1].grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+        return model_biased, model_unbiased
 

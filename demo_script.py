@@ -75,9 +75,9 @@ def basic_demonstration(variable='eruptions'):
     print("\n2. Training kn-NN Neural Network...")
     model = KnNNeuralNetwork(
         k1=1.0,  # This seems to work well for most cases
-        architecture=(50, 30),  # Two hidden layers - good balance
-        max_iter=500,  # Usually converges before this
-        learning_rate=0.001,  # Standard learning rate
+        architecture=(100, 50),  # Two hidden layers - good balance
+        max_iter=2000,  # Usually converges before this
+        learning_rate=0.0001,  # Standard learning rate
         random_state=42  # For reproducibility
     )
     model.fit(data, biased=False, validation_split=0.2, verbose=True)
@@ -123,8 +123,8 @@ def hyperparameter_tuning_demo(variable='eruptions'):
     final_model = KnNNeuralNetwork(
         k1=tuning_results['best_k1'],
         architecture=tuning_results['best_architecture'],
-        max_iter=1000,  # Using more iterations for final model
-        learning_rate=0.001,
+        max_iter=2000,  # Using more iterations for final model
+        learning_rate=0.0001,
         random_state=42
     )
     final_model.fit(data, biased=False, validation_split=0.2, verbose=True)
@@ -159,7 +159,7 @@ def sample_size_experiment(variable='eruptions'):
     results = experiment_runner.run_sample_size_experiment(
         sample_sizes=sample_sizes,
         k1=1.0,
-        architecture=(50, 30),
+        architecture=(100, 50),
         n_runs=3
     )
 
@@ -196,7 +196,7 @@ def compare_variables():
     models = {}
     for var_name, data in [('eruptions', eruptions_data), ('waiting', waiting_data)]:
         print(f"\nTraining model for {var_name}...")
-        model = KnNNeuralNetwork(k1=1.0, architecture=(50, 30), max_iter=500)
+        model = KnNNeuralNetwork(k1=1.0, architecture=(100, 50), max_iter=2000)
         model.fit(data, biased=False, verbose=False)
         models[var_name] = {'model': model, 'data': data}
 
@@ -411,8 +411,8 @@ Examples:
     parser.add_argument(
         '--architecture',
         type=str,
-        default='50,30',
-        help='Neural network architecture as comma-separated integers (default: 50,30)'
+        default='100,50',
+        help='Neural network architecture as comma-separated integers (default: 100,50)'
     )
 
     args = parser.parse_args()
@@ -420,7 +420,7 @@ Examples:
     try:
         architecture = tuple(map(int, args.architecture.split(',')))
     except:
-        print("Error: Invalid architecture format. Use comma-separated integers like '50,30'")
+        print("Error: Invalid architecture format. Use comma-separated integers like '100,50'")
         return
 
     # Route to appropriate function based on arguments
@@ -452,8 +452,8 @@ Examples:
         model = KnNNeuralNetwork(
             k1=args.k1,
             architecture=architecture,
-            max_iter=500,
-            learning_rate=0.001,
+            max_iter=2000,
+            learning_rate=0.0001,
             random_state=42
         )
 

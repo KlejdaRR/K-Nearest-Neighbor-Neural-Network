@@ -72,9 +72,9 @@ def run_faithful_analysis():
     print(f"\nTraining kn-NN Neural Network...")
     model = KnNNeuralNetwork(
         k1=1.0,  # Number of neighbors parameter
-        architecture=(50, 30),  # Two hidden layers
-        max_iter=500,  # Maximum training iterations
-        learning_rate=0.001,
+        architecture=(100, 50),  # Two hidden layers
+        max_iter=2000,  # Maximum training iterations
+        learning_rate=0.0001,
         random_state=42
     )
 
@@ -199,7 +199,7 @@ def analyze_waiting_times():
         return
 
     print(f"\nTraining model on waiting times...")
-    model = KnNNeuralNetwork(k1=1.0, architecture=(50, 30), max_iter=500)
+    model = KnNNeuralNetwork(k1=1.0, architecture=(100, 50), max_iter=2000)
     model.fit(waiting_data, biased=False, validation_split=0.2, verbose=True)
 
     model.plot_density_estimate(

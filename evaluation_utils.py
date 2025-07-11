@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
 from sklearn.model_selection import GridSearchCV
-from sklearn.model_selection import cross_val_score
 
 
 class ModelEvaluator:
@@ -41,7 +40,7 @@ class ModelEvaluator:
         # This helped us debug issues with our implementation
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
         pdf_vals = pdf_func(x_eval)
-        integral = np.trapz(pdf_vals, x_eval)
+        integral = np.trapezoid(pdf_vals, x_eval)
         return integral
 
     @staticmethod
@@ -247,8 +246,8 @@ class HyperparameterTuning:
         self.data = data
         self.x_range = x_range if x_range else (data.min() - 1, data.max() + 1)
 
-    def tune_k1_parameter(self, k1_values=None, architecture=(50, 30),
-                          max_iter=500, biased=False, verbose=True):
+    def tune_k1_parameter(self, k1_values=None, architecture=(100, 50),
+                          max_iter=2000, biased=False, verbose=True):
         # Trying different k1 values to find the best one
         # k1 controls how many neighbors we use
         if k1_values is None:
@@ -313,7 +312,7 @@ class HyperparameterTuning:
 
         return results, best_k1
 
-    def tune_architecture(self, architectures=None, k1=1.0, max_iter=500,
+    def tune_architecture(self, architectures=None, k1=1.0, max_iter=2000,
                           biased=False, verbose=True):
         # Trying different neural network architectures
         if architectures is None:
@@ -321,10 +320,9 @@ class HyperparameterTuning:
                 (20,),  # Single layer, small
                 (50,),  # Single layer, medium
                 (30, 20),  # Two layers, small
-                (50, 30),  # Two layers, medium
-                (100, 50),  # Two layers, large
-                (50, 30, 20),  # Three layers
+                (100, 50),  # Two layers, medium
                 (100, 50, 25),  # Three layers, large
+                (50, 30, 20),  # Three layers
                 (30, 30, 30)  # Three layers, uniform
             ]
 
@@ -385,7 +383,7 @@ class HyperparameterTuning:
             if verbose:
                 print(f"\nBest architecture: {best_arch} (CV Score: {valid_results[best_arch]['cv_score']:.6f})")
         else:
-            best_arch = (50, 30)  # Default architecture
+            best_arch = (100, 50)  # Default architecture
             if verbose:
                 print(f"\nNo valid results, using default architecture: {best_arch}")
 
@@ -439,7 +437,7 @@ class ExperimentRunner:
         self.x_range = x_range if x_range else (data.min() - 1, data.max() + 1)
 
     def run_sample_size_experiment(self, sample_sizes=None, k1=1.0,
-                                   architecture=(50, 30), n_runs=5):
+                                   architecture=(100, 50), n_runs=5):
         # Testing how performance changes with different sample sizes
         if sample_sizes is None:
             max_size = len(self.data)
@@ -469,7 +467,7 @@ class ExperimentRunner:
                     model = KnNNeuralNetwork(
                         k1=k1,
                         architecture=architecture,
-                        max_iter=500,
+                        max_iter=2000,
                         random_state=run
                     )
                     model.fit(train_data, biased=False, verbose=False)
