@@ -53,7 +53,7 @@ class ModelEvaluator:
         data_reshaped = data.reshape(-1, 1) if data.ndim == 1 else data
         grid = GridSearchCV(KernelDensity(kernel='gaussian'),
                             {'bandwidth': bandwidths},
-                            cv=5, scoring='score')
+                            cv=5)
         grid.fit(data_reshaped)
         return grid.best_params_['bandwidth'], grid.best_score_
 
