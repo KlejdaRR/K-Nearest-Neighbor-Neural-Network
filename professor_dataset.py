@@ -1,66 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from knn_neural_network import KnNNeuralNetwork
-from evaluation_utils import HyperparameterTuning, BaselineComparison
 
 
-def load_professor_data(data_string):
-    # Loading of the dataset given by the professor
-    data_points = data_string.strip().split('\n')
-    data = np.array([float(x) for x in data_points])
-    print(f"Loaded {len(data)} samples from professor's dataset")
-    print(f"Data range: [{data.min():.3f}, {data.max():.3f}]")
-    print(f"Mean: {data.mean():.3f}, Std: {data.std():.3f}")
-    return data
+def test_improved_model():
+    """Test the improved model on the professor's dataset"""
 
-
-def analyze_professor_data(data):
-    # Run comprehensive analysis on this new dataset
-    print("\n" + "=" * 60)
-    print("Analyzing Professor's Dataset")
-    print("=" * 60)
-
-    # Defining the true PDF domain (uniform over [0,10] according to professor)
-    def true_pdf(x):
-        return np.where((x >= 0) & (x <= 10), 0.1, 0)
-
-    # First, we do hyperparameter tuning
-    print("\nPerforming hyperparameter tuning...")
-    tuner = HyperparameterTuning(data)
-    tuning_results = tuner.comprehensive_tuning(verbose=True)
-
-    # Training final model with optimal parameters
-    print("\nTraining final model with optimal parameters:")
-    print(f"  k1: {tuning_results['best_k1']}")
-    print(f"  architecture: {tuning_results['best_architecture']}")
-
-    # Update the final model training to:
-    final_model = KnNNeuralNetwork(
-        k1=tuning_results['best_k1'],
-        architecture=tuning_results['best_architecture'],
-        max_iter=2000,  # Increased iterations
-        learning_rate=0.0005,  # Reduced learning rate
-        random_state=42
-    )
-
-    final_model.fit(data, biased=False, validation_split=0.2, verbose=True)
-
-    final_model.plot_training_curves()
-
-    final_model.plot_density_estimate(
-        x_range=(0, 10),  # Professor specified domain
-        true_pdf=true_pdf,
-        title=f"kn-NN Density Estimation on Professor's Data\n(k1={tuning_results['best_k1']}, arch={tuning_results['best_architecture']})"
-    )
-
-    print("\nComparing with baseline methods...")
-    baseline = BaselineComparison(data)
-    baseline.compare_all_methods(final_model, x_range=(0, 10))
-
-    return final_model, tuning_results
-
-
-def main():
+    # Professor's data
     data_string = """9.338509e+00
 8.507600e+00
 9.948655e+00
@@ -162,28 +108,64 @@ def main():
 9.700784e+00
 9.680427e+00"""
 
-    data = load_professor_data(data_string)
-    model, results = analyze_professor_data(data)
+    data = np.array([float(x) for x in data_string.strip().split('\n')])
+    print(f"Loaded {len(data)} samples")
+    print(f"Data range: [{data.min():.3f}, {data.max():.3f}]")
+    print(f"Mean: {data.mean():.3f}, Std: {data.std():.3f}")
 
-    import pickle
-    with open('professor_dataset_results.pkl', 'wb') as f:
-        pickle.dump({
-            'model': model,
-            'tuning_results': results,
-            'data': data
-        }, f)
-    print("\nAnalysis complete! Results saved to professor_dataset_results.pkl")
+    # True PDF (uniform over [0,10])
+    def true_pdf(x):
+        return np.where((x >= 0) & (x <= 10), 0.1, 0)
+
+    # Test different k1 values
+    k1_values = [0.5, 1.0, 1.5, 2.0]
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    axes = axes.flatten()
+
+    for i, k1 in enumerate(k1_values):
+        print(f"\nTesting k1 = {k1}")
+
+        model = KnNNeuralNetwork(
+            k1=k1,
+            architecture=(100, 50, 25),  # Deeper network
+            max_iter=3000,
+            learning_rate=0.0001,
+            alpha=0.01,  # More regularization
+            random_state=42
+        )
+
+        model.fit(data, biased=False, validation_split=0.2, verbose=True)
+
+        # Evaluate on extended range
+        x_eval = np.linspace(0, 10, 1000)
+        density_est = model.predict(x_eval)
+        true_density = true_pdf(x_eval)
+
+        # Plot
+        axes[i].plot(x_eval, density_est, 'b-', linewidth=2,
+                     label=f'Improved kn-NN (k1={k1})')
+        axes[i].plot(x_eval, true_density, 'r--', linewidth=2,
+                     label='True PDF (Uniform)')
+        axes[i].scatter(data, np.zeros_like(data), alpha=0.6, s=15,
+                        c='orange', label='Data')
+
+        # Calculate integral
+        integral = np.trapz(density_est, x_eval)
+        axes[i].set_title(f'k1={k1}, ∫PDF={integral:.3f}')
+        axes[i].set_xlabel('x')
+        axes[i].set_ylabel('Density')
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+        axes[i].set_ylim(0, 0.5)  # Reasonable y-axis limit
+
+        print(f"Integral: {integral:.3f}")
+        print(f"Max density: {density_est.max():.3f}")
+
+    plt.tight_layout()
+    plt.show()
 
 
+# Run the test
 if __name__ == "__main__":
-    plt.style.use('default')
-    plt.rcParams['figure.figsize'] = [10, 6]
-    plt.rcParams['font.size'] = 10
-
-    try:
-        main()
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        import traceback
-
-        traceback.print_exc()
+    test_improved_model()
