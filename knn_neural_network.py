@@ -4,7 +4,6 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-import warnings
 
 class KnNNeuralNetwork:
     # Our implementation of the kn-NN Neural Network for density estimation.

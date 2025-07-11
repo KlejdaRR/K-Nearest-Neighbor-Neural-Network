@@ -2,84 +2,65 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
 from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score
+
 
 class ModelEvaluator:
     # Helper class for evaluating density estimation models
     # We needed this to compare our results with the true PDF
-
-
     @staticmethod
-    def integrated_squared_error(estimated_pdf, true_pdf, x_range, n_points=10000):
-        # Calculating ISE between estimated and true PDF
-        # This is one of the standard metrics for density estimation
+    def cross_validation_score(model_func, data, cv_folds=5):
+        # Cross-validation score for density estimation using log-likelihood
+        # Since we don't have true PDF for real data, we use CV log-likelihood
 
-        x_eval = np.linspace(x_range[0], x_range[1], n_points)
-        dx = (x_range[1] - x_range[0]) / n_points
+        from sklearn.model_selection import KFold
+        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        scores = []
 
-        estimated_vals = estimated_pdf(x_eval)
-        true_vals = true_pdf(x_eval)
+        for train_idx, test_idx in kf.split(data):
+            train_data = data[train_idx]
+            test_data = data[test_idx]
 
-        squared_error = (estimated_vals - true_vals) ** 2
-        ise = np.trapz(squared_error, dx=dx)
+            # Train model on training fold
+            try:
+                model = model_func(train_data)
+                # Evaluate on test fold
+                test_densities = model.predict(test_data.reshape(-1, 1) if test_data.ndim == 1 else test_data)
+                # Log-likelihood (avoiding log(0))
+                test_densities = np.maximum(test_densities, 1e-10)
+                log_likelihood = np.mean(np.log(test_densities))
+                scores.append(log_likelihood)
+            except:
+                scores.append(-np.inf)
 
-        return ise
-
-    @staticmethod
-    def mean_absolute_error(estimated_pdf, true_pdf, x_range, n_points=10000):
-
-        # Calculating MAE - because it is easier to interpret than ISE
-
-        x_eval = np.linspace(x_range[0], x_range[1], n_points)
-
-        estimated_vals = estimated_pdf(x_eval)
-        true_vals = true_pdf(x_eval)
-
-        mae = np.mean(np.abs(estimated_vals - true_vals))
-
-        return mae
-
-    @staticmethod
-    def kullback_leibler_divergence(estimated_pdf, true_pdf, x_range, n_points=10000):
-        # KL divergence - measures how much the estimated PDF differs from true PDF
-        # We Had some issues with numerical stability here, added epsilon to avoid log(0)
-
-        x_eval = np.linspace(x_range[0], x_range[1], n_points)
-        dx = (x_range[1] - x_range[0]) / n_points
-
-        true_vals = true_pdf(x_eval)
-        estimated_vals = estimated_pdf(x_eval)
-
-        epsilon = 1e-10
-        estimated_vals = np.maximum(estimated_vals, epsilon)
-        true_vals = np.maximum(true_vals, epsilon)
-
-        valid_mask = true_vals > epsilon
-
-        if np.sum(valid_mask) > 0:
-            kl_div = np.trapz(
-                true_vals[valid_mask] * np.log(true_vals[valid_mask] / estimated_vals[valid_mask]),
-                dx=dx
-            )
-        else:
-            kl_div = np.inf
-
-        return kl_div
+        return np.mean(scores), np.std(scores)
 
     @staticmethod
     def check_normalization(pdf_func, x_range, n_points=10000):
         # Checking if the PDF integrates to 1 (as it should)
         # This helped us debug issues with our implementation
-
         x_eval = np.linspace(x_range[0], x_range[1], n_points)
         pdf_vals = pdf_func(x_eval)
         integral = np.trapz(pdf_vals, x_eval)
         return integral
 
+    @staticmethod
+    def compute_bandwidth_comparison(data, bandwidths=None):
+        # Comparing different bandwidths for KDE using cross-validation
+        if bandwidths is None:
+            bandwidths = np.logspace(-2, 1, 20)
+
+        data_reshaped = data.reshape(-1, 1) if data.ndim == 1 else data
+        grid = GridSearchCV(KernelDensity(kernel='gaussian'),
+                            {'bandwidth': bandwidths},
+                            cv=5, scoring='score')
+        grid.fit(data_reshaped)
+        return grid.best_params_['bandwidth'], grid.best_score_
+
 
 class BaselineComparison:
     # Comparing our kn-NN method with standard baseline methods
     # With this we can know for sure if our approach actually works
-
 
     def __init__(self, data):
         self.data = data.reshape(-1, 1) if data.ndim == 1 else data
@@ -87,15 +68,9 @@ class BaselineComparison:
 
     def fit_parzen_window(self, bandwidth=None):
         # Fitting Parzen window (KDE) with automatic bandwidth selection
-
         if bandwidth is None:
             # Using cross-validation to find best bandwidth
-            bandwidths = np.logspace(-2, 1, 20)
-            grid = GridSearchCV(KernelDensity(kernel='gaussian'),
-                                {'bandwidth': bandwidths},
-                                cv=5)
-            grid.fit(self.data)
-            bandwidth = grid.best_params_['bandwidth']
+            bandwidth, _ = ModelEvaluator.compute_bandwidth_comparison(self.data.flatten())
 
         kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth)
         kde.fit(self.data)
@@ -105,30 +80,26 @@ class BaselineComparison:
             'bandwidth': bandwidth,
             'name': f'Parzen Window (bw={bandwidth:.3f})'
         }
-
         return kde
 
     def fit_histogram(self, bins='auto'):
         # Simple histogram-based density estimation
-
         if bins == 'auto':
             # Use sqrt rule for number of bins
-            bins = int(np.sqrt(len(self.data)))
+            bins = int(np.log2(len(self.data)) + 1)
 
         hist, bin_edges = np.histogram(self.data.flatten(), bins=bins, density=True)
 
         def histogram_pdf(x):
-            # Convert histogram to a function we can evaluate anywhere
+            # Converting histogram to a function so we can evaluate anywhere
             x = np.atleast_1d(x)
             result = np.zeros_like(x)
-
             for i in range(len(bin_edges) - 1):
                 mask = (x >= bin_edges[i]) & (x < bin_edges[i + 1])
                 result[mask] = hist[i]
-
+            # Handling the last bin edge
             mask = x == bin_edges[-1]
             result[mask] = hist[-1]
-
             return result
 
         self.fitted_models['histogram'] = {
@@ -136,16 +107,14 @@ class BaselineComparison:
             'bins': bins,
             'name': f'Histogram ({bins} bins)'
         }
-
         return histogram_pdf
 
-    def compare_all_methods(self, knn_model, true_pdf=None, x_range=None,
-                            n_points=1000, figsize=(15, 10)):
+    def compare_all_methods(self, knn_model, x_range=None, n_points=1000, figsize=(15, 10)):
         # Comparing all methods side by side with quantitative metrics
-
         if x_range is None:
-            x_min, x_max = self.data.min(), self.data.max()
-            x_range = (x_min - 1, x_max + 1)
+            data_flat = self.data.flatten()
+            margin = (data_flat.max() - data_flat.min()) * 0.1
+            x_range = (data_flat.min() - margin, data_flat.max() + margin)
 
         self.fit_parzen_window()
         self.fit_histogram()
@@ -169,8 +138,6 @@ class BaselineComparison:
         # Plotting each method individually
         for i, (name, pred, color) in enumerate(methods):
             axes[i].plot(x_eval, pred, color=color, linewidth=2, label=name)
-            if true_pdf is not None:
-                axes[i].plot(x_eval, true_pdf(x_eval), 'r--', linewidth=2, label='True PDF')
             axes[i].scatter(self.data.flatten(), np.zeros_like(self.data.flatten()),
                             alpha=0.4, s=10, c='orange', label='Data')
             axes[i].set_title(name)
@@ -183,8 +150,6 @@ class BaselineComparison:
         axes[3].plot(x_eval, knn_pred, 'b-', linewidth=2, label='kn-NN Neural Network')
         axes[3].plot(x_eval, parzen_pred, 'g-', linewidth=2, label='Parzen Window')
         axes[3].plot(x_eval, hist_pred, 'm-', linewidth=2, label='Histogram')
-        if true_pdf is not None:
-            axes[3].plot(x_eval, true_pdf(x_eval), 'r--', linewidth=2, label='True PDF')
         axes[3].scatter(self.data.flatten(), np.zeros_like(self.data.flatten()),
                         alpha=0.4, s=10, c='orange', label='Data')
         axes[3].set_title('All Methods Comparison')
@@ -196,40 +161,81 @@ class BaselineComparison:
         plt.tight_layout()
         plt.show()
 
-        # Printing quantitative comparison if we have the true PDF
-        if true_pdf is not None:
-            print("\nQuantitative Comparison:")
-            print("-" * 50)
+        # Quantitative comparison using cross-validation log-likelihood
+        print("\nQuantitative Comparison (Cross-Validation Log-Likelihood):")
+        print("-" * 60)
+        evaluator = ModelEvaluator()
 
-            evaluator = ModelEvaluator()
+        def knn_model_func(train_data):
+            from knn_neural_network import KnNNeuralNetwork
+            temp_model = KnNNeuralNetwork(
+                k1=knn_model.k1,
+                architecture=knn_model.architecture,
+                max_iter=knn_model.max_iter,
+                learning_rate=knn_model.learning_rate,
+                random_state=42
+            )
+            temp_model.fit(train_data, biased=False, verbose=False)
+            return temp_model
 
-            def knn_pdf(x):
-                return knn_model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
+        def parzen_model_func(train_data):
+            bandwidth, _ = evaluator.compute_bandwidth_comparison(train_data)
+            kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth)
+            kde.fit(train_data.reshape(-1, 1))
 
-            def parzen_pdf(x):
-                return np.exp(self.fitted_models['parzen']['model'].score_samples(x.reshape(-1, 1)))
+            class KDEWrapper:
+                def __init__(self, kde_model):
+                    self.kde = kde_model
 
-            def hist_pdf(x):
-                return self.fitted_models['histogram']['model'](x)
+                def predict(self, x):
+                    return np.exp(self.kde.score_samples(x.reshape(-1, 1) if x.ndim == 1 else x))
 
-            methods_eval = [
-                ('kn-NN Neural Network', knn_pdf),
-                ('Parzen Window', parzen_pdf),
-                ('Histogram', hist_pdf)
-            ]
+            return KDEWrapper(kde)
 
-            for name, pdf_func in methods_eval:
-                ise = evaluator.integrated_squared_error(pdf_func, true_pdf, x_range)
-                mae = evaluator.mean_absolute_error(pdf_func, true_pdf, x_range)
-                kl_div = evaluator.kullback_leibler_divergence(pdf_func, true_pdf, x_range)
-                integral = evaluator.check_normalization(pdf_func, x_range)
+        def hist_model_func(train_data):
+            bins = int(np.log2(len(train_data)) + 1)
+            hist, bin_edges = np.histogram(train_data, bins=bins, density=True)
 
+            def histogram_pdf(x):
+                x = np.atleast_1d(x)
+                result = np.zeros_like(x)
+                for i in range(len(bin_edges) - 1):
+                    mask = (x >= bin_edges[i]) & (x < bin_edges[i + 1])
+                    result[mask] = hist[i]
+                mask = x == bin_edges[-1]
+                result[mask] = hist[-1]
+                return result
+
+            class HistWrapper:
+                def predict(self, x):
+                    return histogram_pdf(x.flatten() if x.ndim > 1 else x)
+
+            return HistWrapper()
+
+        methods_eval = [
+            ('kn-NN Neural Network', knn_model_func),
+            ('Parzen Window', parzen_model_func),
+            ('Histogram', hist_model_func)
+        ]
+
+        data_flat = self.data.flatten()
+        for name, model_func in methods_eval:
+            try:
+                cv_mean, cv_std = evaluator.cross_validation_score(model_func, data_flat)
                 print(f"{name}:")
-                print(f"  ISE: {ise:.6f}")
-                print(f"  MAE: {mae:.6f}")
-                print(f"  KL Divergence: {kl_div:.6f}")
-                print(f"  Integral: {integral:.6f}")
+                print(f"  CV Log-Likelihood: {cv_mean:.6f} ± {cv_std:.6f}")
+
+                # Also check normalization
+                if name == 'kn-NN Neural Network':
+                    def knn_pdf(x):
+                        return knn_model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
+
+                    integral = evaluator.check_normalization(knn_pdf, x_range)
+                    print(f"  Normalization: {integral:.6f}")
+
                 print()
+            except Exception as e:
+                print(f"{name}: Error in evaluation - {str(e)}")
 
         return methods
 
@@ -237,16 +243,14 @@ class BaselineComparison:
 class HyperparameterTuning:
     # Automated hyperparameter tuning for the kn-NN Neural Network
 
-    def __init__(self, data, true_pdf=None, x_range=None):
+    def __init__(self, data, x_range=None):
         self.data = data
-        self.true_pdf = true_pdf
         self.x_range = x_range if x_range else (data.min() - 1, data.max() + 1)
 
     def tune_k1_parameter(self, k1_values=None, architecture=(50, 30),
                           max_iter=500, biased=False, verbose=True):
         # Trying different k1 values to find the best one
         # k1 controls how many neighbors we use
-
         if k1_values is None:
             k1_values = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0]
 
@@ -258,56 +262,50 @@ class HyperparameterTuning:
             print("-" * 40)
 
         for k1 in k1_values:
-            from knn_neural_network import KnNNeuralNetwork
-
-            model = KnNNeuralNetwork(
-                k1=k1,
-                architecture=architecture,
-                max_iter=max_iter,
-                random_state=42
-            )
+            def model_func(train_data):
+                from knn_neural_network import KnNNeuralNetwork
+                model = KnNNeuralNetwork(
+                    k1=k1,
+                    architecture=architecture,
+                    max_iter=max_iter,
+                    random_state=42
+                )
+                model.fit(train_data, biased=biased, verbose=False)
+                return model
 
             try:
-                model.fit(self.data, biased=biased, verbose=False)
+                cv_mean, cv_std = evaluator.cross_validation_score(model_func, self.data)
+
+                # Also training a full model for other metrics
+                full_model = model_func(self.data)
 
                 def model_pdf(x):
-                    return model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
-
-                if self.true_pdf is not None:
-                    ise = evaluator.integrated_squared_error(model_pdf, self.true_pdf, self.x_range)
-                    mae = evaluator.mean_absolute_error(model_pdf, self.true_pdf, self.x_range)
-                    kl_div = evaluator.kullback_leibler_divergence(model_pdf, self.true_pdf, self.x_range)
-                else:
-                    # If we don't have true PDF, we use training loss as proxy
-                    ise = model.mlp.loss_
-                    mae = model.mlp.loss_
-                    kl_div = model.mlp.loss_
+                    return full_model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
 
                 integral = evaluator.check_normalization(model_pdf, self.x_range)
 
                 results[k1] = {
-                    'model': model,
-                    'ise': ise,
-                    'mae': mae,
-                    'kl_div': kl_div,
+                    'model': full_model,
+                    'cv_score': cv_mean,
+                    'cv_std': cv_std,
                     'integral': integral,
-                    'training_loss': model.mlp.loss_
+                    'training_loss': full_model.mlp.loss_
                 }
 
                 if verbose:
-                    print(f"k1={k1:.1f}: ISE={ise:.6f}, MAE={mae:.6f}, Integral={integral:.3f}")
+                    print(f"k1={k1:.1f}: CV Score={cv_mean:.6f}±{cv_std:.6f}, Integral={integral:.3f}")
 
             except Exception as e:
                 if verbose:
                     print(f"k1={k1:.1f}: Failed - {str(e)}")
                 results[k1] = None
 
-        # Finding the best k1 based on ISE
+        # Finding the best k1 based on CV score (higher is better for log-likelihood)
         valid_results = {k: v for k, v in results.items() if v is not None}
         if valid_results:
-            best_k1 = min(valid_results.keys(), key=lambda k: valid_results[k]['ise'])
+            best_k1 = max(valid_results.keys(), key=lambda k: valid_results[k]['cv_score'])
             if verbose:
-                print(f"\nBest k1: {best_k1} (ISE: {valid_results[best_k1]['ise']:.6f})")
+                print(f"\nBest k1: {best_k1} (CV Score: {valid_results[best_k1]['cv_score']:.6f})")
         else:
             best_k1 = k1_values[len(k1_values) // 2]  # Default to middle value
             if verbose:
@@ -318,13 +316,12 @@ class HyperparameterTuning:
     def tune_architecture(self, architectures=None, k1=1.0, max_iter=500,
                           biased=False, verbose=True):
         # Trying different neural network architectures
-
         if architectures is None:
             architectures = [
                 (20,),  # Single layer, small
                 (50,),  # Single layer, medium
                 (30, 20),  # Two layers, small
-                (50, 30),  # Two layers, medium - this seems to work well
+                (50, 30),  # Two layers, medium
                 (100, 50),  # Two layers, large
                 (50, 30, 20),  # Three layers
                 (100, 50, 25),  # Three layers, large
@@ -339,48 +336,43 @@ class HyperparameterTuning:
             print("-" * 40)
 
         for arch in architectures:
-            from knn_neural_network import KnNNeuralNetwork
-
-            model = KnNNeuralNetwork(
-                k1=k1,
-                architecture=arch,
-                max_iter=max_iter,
-                random_state=42
-            )
+            def model_func(train_data):
+                from knn_neural_network import KnNNeuralNetwork
+                model = KnNNeuralNetwork(
+                    k1=k1,
+                    architecture=arch,
+                    max_iter=max_iter,
+                    random_state=42
+                )
+                model.fit(train_data, biased=biased, verbose=False)
+                return model
 
             try:
-                model.fit(self.data, biased=biased, verbose=False)
+                cv_mean, cv_std = evaluator.cross_validation_score(model_func, self.data)
+
+                # Training full model for other metrics
+                full_model = model_func(self.data)
 
                 def model_pdf(x):
-                    return model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
-
-                if self.true_pdf is not None:
-                    ise = evaluator.integrated_squared_error(model_pdf, self.true_pdf, self.x_range)
-                    mae = evaluator.mean_absolute_error(model_pdf, self.true_pdf, self.x_range)
-                    kl_div = evaluator.kullback_leibler_divergence(model_pdf, self.true_pdf, self.x_range)
-                else:
-                    ise = model.mlp.loss_
-                    mae = model.mlp.loss_
-                    kl_div = model.mlp.loss_
+                    return full_model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
 
                 integral = evaluator.check_normalization(model_pdf, self.x_range)
 
-                # Counting parameters to see model complexity
-                n_params = sum([np.prod(layer.shape) for layer in model.mlp.coefs_]) + \
-                           sum([layer.shape[0] for layer in model.mlp.intercepts_])
+                # Counting parameters
+                n_params = sum([np.prod(layer.shape) for layer in full_model.mlp.coefs_]) + \
+                           sum([layer.shape[0] for layer in full_model.mlp.intercepts_])
 
                 results[arch] = {
-                    'model': model,
-                    'ise': ise,
-                    'mae': mae,
-                    'kl_div': kl_div,
+                    'model': full_model,
+                    'cv_score': cv_mean,
+                    'cv_std': cv_std,
                     'integral': integral,
-                    'training_loss': model.mlp.loss_,
+                    'training_loss': full_model.mlp.loss_,
                     'n_parameters': n_params
                 }
 
                 if verbose:
-                    print(f"{str(arch):15}: ISE={ise:.6f}, Parameters={n_params}")
+                    print(f"{str(arch):15}: CV Score={cv_mean:.6f}±{cv_std:.6f}, Parameters={n_params}")
 
             except Exception as e:
                 if verbose:
@@ -389,9 +381,9 @@ class HyperparameterTuning:
 
         valid_results = {k: v for k, v in results.items() if v is not None}
         if valid_results:
-            best_arch = min(valid_results.keys(), key=lambda k: valid_results[k]['ise'])
+            best_arch = max(valid_results.keys(), key=lambda k: valid_results[k]['cv_score'])
             if verbose:
-                print(f"\nBest architecture: {best_arch} (ISE: {valid_results[best_arch]['ise']:.6f})")
+                print(f"\nBest architecture: {best_arch} (CV Score: {valid_results[best_arch]['cv_score']:.6f})")
         else:
             best_arch = (50, 30)  # Default architecture
             if verbose:
@@ -401,7 +393,6 @@ class HyperparameterTuning:
 
     def comprehensive_tuning(self, verbose=True):
         # Doing a comprehensive search over both k1 and architecture
-
         if verbose:
             print("=" * 60)
             print("Comprehensive Hyperparameter Tuning")
@@ -409,14 +400,12 @@ class HyperparameterTuning:
 
         # Phase 1: Tuning k1 with default architecture
         k1_results, best_k1 = self.tune_k1_parameter(verbose=verbose)
-
         if verbose:
             print(f"\nPhase 1 complete. Best k1: {best_k1}")
             print("\n" + "=" * 60)
 
         # Phase 2: Tuning architecture with best k1
         arch_results, best_arch = self.tune_architecture(k1=best_k1, verbose=verbose)
-
         if verbose:
             print(f"\nPhase 2 complete. Best architecture: {best_arch}")
             print("\n" + "=" * 60)
@@ -443,18 +432,19 @@ class HyperparameterTuning:
 
 
 class ExperimentRunner:
+    # Running experiments on real data
 
-    def __init__(self, data, true_pdf=None, x_range=None):
+    def __init__(self, data, x_range=None):
         self.data = data
-        self.true_pdf = true_pdf
         self.x_range = x_range if x_range else (data.min() - 1, data.max() + 1)
 
     def run_sample_size_experiment(self, sample_sizes=None, k1=1.0,
                                    architecture=(50, 30), n_runs=5):
         # Testing how performance changes with different sample sizes
-
         if sample_sizes is None:
-            sample_sizes = [50, 100, 200, 400, 800]
+            max_size = len(self.data)
+            sample_sizes = [30, 50, 100, 150, 200, int(max_size * 0.8)]
+            sample_sizes = [s for s in sample_sizes if s < max_size]
 
         results = {}
         evaluator = ModelEvaluator()
@@ -474,59 +464,52 @@ class ExperimentRunner:
                 indices = np.random.choice(len(self.data), n, replace=False)
                 subsample = self.data[indices]
 
-                from knn_neural_network import KnNNeuralNetwork
-
-                model = KnNNeuralNetwork(
-                    k1=k1,
-                    architecture=architecture,
-                    max_iter=500,
-                    random_state=run
-                )
+                def model_func(train_data):
+                    from knn_neural_network import KnNNeuralNetwork
+                    model = KnNNeuralNetwork(
+                        k1=k1,
+                        architecture=architecture,
+                        max_iter=500,
+                        random_state=run
+                    )
+                    model.fit(train_data, biased=False, verbose=False)
+                    return model
 
                 try:
-                    model.fit(subsample, biased=False, verbose=False)
+                    cv_score, cv_std = evaluator.cross_validation_score(model_func, subsample)
 
-                    def model_pdf(x):
-                        return model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
-
-                    if self.true_pdf is not None:
-                        ise = evaluator.integrated_squared_error(model_pdf, self.true_pdf, self.x_range)
-                        mae = evaluator.mean_absolute_error(model_pdf, self.true_pdf, self.x_range)
-                    else:
-                        ise = model.mlp.loss_
-                        mae = model.mlp.loss_
+                    # Also getting training loss
+                    full_model = model_func(subsample)
+                    training_loss = full_model.mlp.loss_
 
                     run_results.append({
-                        'ise': ise,
-                        'mae': mae,
-                        'training_loss': model.mlp.loss_
+                        'cv_score': cv_score,
+                        'training_loss': training_loss
                     })
-
                 except Exception as e:
                     print(f"Failed for n={n}, run={run}: {str(e)}")
 
             # Calculating statistics across runs
             if run_results:
-                ise_mean = np.mean([r['ise'] for r in run_results])
-                ise_std = np.std([r['ise'] for r in run_results])
-                mae_mean = np.mean([r['mae'] for r in run_results])
-                mae_std = np.std([r['mae'] for r in run_results])
+                cv_mean = np.mean([r['cv_score'] for r in run_results])
+                cv_std = np.std([r['cv_score'] for r in run_results])
+                loss_mean = np.mean([r['training_loss'] for r in run_results])
+                loss_std = np.std([r['training_loss'] for r in run_results])
 
                 results[n] = {
-                    'ise_mean': ise_mean,
-                    'ise_std': ise_std,
-                    'mae_mean': mae_mean,
-                    'mae_std': mae_std,
+                    'cv_score_mean': cv_mean,
+                    'cv_score_std': cv_std,
+                    'ise_mean': loss_mean,  # For compatibility with plotting code
+                    'ise_std': loss_std,  # For compatibility with plotting code
                     'raw_results': run_results
                 }
 
-                print(f"n={n:3d}: ISE={ise_mean:.6f}±{ise_std:.6f}, MAE={mae_mean:.6f}±{mae_std:.6f}")
+                print(f"n={n:3d}: CV Score={cv_mean:.6f}±{cv_std:.6f}, Loss={loss_mean:.6f}±{loss_std:.6f}")
 
         return results
 
-    def generate_final_report(self, model, comparison_methods=None):
+    def generate_final_report(self, model, comparison_methods=True):
         # Generating a comprehensive report on the model performance
-
         print("=" * 80)
         print("FINAL EVALUATION REPORT")
         print("=" * 80)
@@ -551,24 +534,27 @@ class ExperimentRunner:
         print(f"  Non-negative outputs: {np.all(density_estimates >= 0)}")
         print(f"  Output range: [{density_estimates.min():.6f}, {density_estimates.max():.6f}]")
 
-        # Comparing with true PDF if available
-        if self.true_pdf is not None:
-            def model_pdf(x):
-                return model.predict(x.reshape(-1, 1) if x.ndim == 1 else x)
+        # Cross-validation evaluation
+        def model_func(train_data):
+            from knn_neural_network import KnNNeuralNetwork
+            temp_model = KnNNeuralNetwork(
+                k1=model.k1,
+                architecture=model.architecture,
+                max_iter=model.max_iter,
+                learning_rate=model.learning_rate,
+                random_state=42
+            )
+            temp_model.fit(train_data, biased=False, verbose=False)
+            return temp_model
 
-            ise = evaluator.integrated_squared_error(model_pdf, self.true_pdf, self.x_range)
-            mae = evaluator.mean_absolute_error(model_pdf, self.true_pdf, self.x_range)
-            kl_div = evaluator.kullback_leibler_divergence(model_pdf, self.true_pdf, self.x_range)
+        cv_score, cv_std = evaluator.cross_validation_score(model_func, self.data)
+        print(f"\nCross-Validation Performance:")
+        print(f"  CV Log-Likelihood: {cv_score:.6f} ± {cv_std:.6f}")
 
-            print(f"\nComparison with True PDF:")
-            print(f"  Integrated Squared Error: {ise:.6f}")
-            print(f"  Mean Absolute Error: {mae:.6f}")
-            print(f"  KL Divergence: {kl_div:.6f}")
-
-        if comparison_methods is not None:
+        if comparison_methods:
             print(f"\nBaseline Comparison:")
             baseline = BaselineComparison(self.data)
-            baseline.compare_all_methods(model, self.true_pdf, self.x_range, figsize=(15, 8))
+            baseline.compare_all_methods(model, self.x_range, figsize=(15, 8))
 
         print("\n" + "=" * 80)
         print("Report generation complete.")
@@ -577,7 +563,6 @@ class ExperimentRunner:
 def save_model_results(model, filename, additional_data=None):
     # Saving model
     import pickle
-
     save_data = {
         'model_params': {
             'k1': model.k1,
@@ -604,94 +589,13 @@ def save_model_results(model, filename, additional_data=None):
 
     with open(filename, 'wb') as f:
         pickle.dump(save_data, f)
-
     print(f"Model saved to {filename}")
 
 
 def load_model_results(filename):
     # Loading previously saved model results
     import pickle
-
     with open(filename, 'rb') as f:
         data = pickle.load(f)
-
     print(f"Model loaded from {filename}")
     return data
-
-
-def evaluate_on_instructor_dataset(data_file_path, model_params=None):
-    # Evaluate of the algorithm on the instructor's dataset
-
-    try:
-        instructor_data = np.loadtxt(data_file_path)
-        print(f"Loaded {len(instructor_data)} samples from instructor's dataset")
-        print(f"Data range: [{instructor_data.min():.3f}, {instructor_data.max():.3f}]")
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        return None
-
-    if model_params is None:
-        model_params = {
-            'k1': 1.0,
-            'architecture': (50, 30),
-            'max_iter': 1000,
-            'learning_rate': 0.001
-        }
-
-    from knn_neural_network import KnNNeuralNetwork
-
-    print("\nPerforming hyperparameter tuning...")
-    tuner = HyperparameterTuning(instructor_data)
-    tuning_results = tuner.comprehensive_tuning()
-
-    # Training the final model with optimal parameters
-    print("\nTraining final model...")
-    final_model = KnNNeuralNetwork(
-        k1=tuning_results['best_k1'],
-        architecture=tuning_results['best_architecture'],
-        max_iter=1000,
-        learning_rate=0.001,
-        random_state=42
-    )
-
-    print("Training unbiased version...")
-    final_model.fit(instructor_data, biased=False, validation_split=0.2, verbose=True)
-
-    # Also training biased version for comparison
-    print("Training biased version for comparison...")
-    biased_model = KnNNeuralNetwork(
-        k1=tuning_results['best_k1'],
-        architecture=tuning_results['best_architecture'],
-        max_iter=1000,
-        learning_rate=0.001,
-        random_state=42
-    )
-    biased_model.fit(instructor_data, biased=True, validation_split=0.2, verbose=True)
-
-    experiment_runner = ExperimentRunner(instructor_data)
-    experiment_runner.generate_final_report(final_model, comparison_methods=True)
-
-    print("\nGenerating visualizations...")
-
-    # Comparing biased vs unbiased
-    final_model.compare_biased_unbiased(instructor_data)
-
-    final_model.plot_training_curves()
-
-    final_model.plot_density_estimate(
-        title="Final kn-NN Density Estimation on Instructor's Dataset"
-    )
-
-    save_model_results(
-        final_model,
-        'instructor_dataset_results.pkl',
-        {
-            'instructor_data': instructor_data,
-            'tuning_results': tuning_results,
-            'biased_model_loss': biased_model.mlp.loss_
-        }
-    )
-
-    print("\nEvaluation complete! Results saved to 'instructor_dataset_results.pkl'")
-
-    return final_model, tuning_results
