@@ -3,8 +3,7 @@ import matplotlib.pyplot as plt
 from knn_neural_network import KnNNeuralNetwork
 
 
-def load_faithful_data(filename='faithful.dat.txt', variable='eruptions'):
-    # Loading the Old Faithful dataset
+def load_faithful_data(filename='datasets/faithful.dat.txt', variable='eruptions'):    # Loading the Old Faithful dataset
     # Parameters:
     # filename: path to the data file
     # variable: 'eruptions' for eruption duration or 'waiting' for waiting time
