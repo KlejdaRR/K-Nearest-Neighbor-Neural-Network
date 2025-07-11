@@ -1,71 +1,84 @@
 # kn-NN Neural Network for Density Estimation
 
-This is our implementation of a kn-nearest neighbor neural network for probability density function estimation. Instead of using traditional Parzen windows, we are using kn-NN to generate training targets for a multilayer perceptron. This was inspired by the Parzen Neural Networks paper we discussed in class, but with some modifications to make it work better.
+This project implements a hybrid approach to probability density function (PDF) estimation by combining k-nearest neighbor (k-NN) methods with neural networks. Inspired by Parzen Neural Networks, we replace traditional Parzen windows with k-NN to generate training targets for a multilayer perceptron (MLP), achieving robust density estimation on real-world data like the Old Faithful geyser dataset.
+
+## Key Features
+- **k-NN + Neural Network Hybrid**: Uses k-NN density estimates as pseudo-targets to train an MLP.
+- **Biased/Unbiased Estimation**: Implements both versions for comparison (unbiased recommended).
+- **Comprehensive Evaluation**: Includes comparison with KDE, histograms, and quantitative metrics.
+- **Real-World Validation**: Demonstrated on the Old Faithful dataset (eruption durations and waiting times).
 
 ## What's in here
-
-```
 knn_neural_network/
-├── knn_neural_network.py    # Main implementation of the algorithm
-├── evaluation_utils.py      # Evaluation metrics and comparison tools
-├── demo_script.py          # Demo script with different experiments
-├── README.md             
-└── requirements.txt        # Required packages
-```
+|── datasets/|──────────── faithful.dat.txt # dataset
+├── knn_neural_network.py # Main algorithm implementation
+├── evaluation_utils.py # Metrics, baseline comparisons, hyperparameter tuning
+├── demo_script.py # Preconfigured experiments (Old Faithful dataset)
+├── simple_faithful_example.py # Minimal example with Old Faithful data
+├── README.md
+└── requirements.txt # Dependencies
 
-## How it works
+## How It Works
+1. **Target Generation**:  
+   For each point `x_i`, compute a k-NN density estimate (`kn = k1 * sqrt(n)`).  
+   - **Unbiased (default)**: Excludes `x_i` (leave-one-out).  
+   - **Biased**: Includes `x_i` (may overfit).  
 
-Basic idea: instead of using the neural network directly for density estimation, we use kn-NN to generate "pseudo-targets" and then train a neural network to learn this mapping.
+2. **Neural Network Training**:  
+   An MLP learns to map input points → k-NN density estimates.  
 
-### The algorithm:
+3. **Density Estimation**:  
+   The trained MLP predicts densities for new points.  
 
-1. **Target generation**: For each training point xi, we calculate a density estimate using the kn-nearest neighbor method
-2. **Neural network training**: We train an MLP to learn the mapping from input points to these density estimates
-3. **Density estimation**: We use the trained network to estimate density at any new point
+## Old Faithful Dataset Results
+The model successfully captures the bimodal distributions of:
+- **Eruption Durations**: Peaks at ~2 and ~4.5 minutes.
+- **Waiting Times**: Peaks at ~55 and ~80 minutes.  
 
-### Biased vs Unbiased
+## Key findings:
+- Strong correlation (r = 0.901) between eruption duration and waiting time.
+- Unbiased estimates are smoother and more reliable than biased ones.
+- Competitive performance with Kernel Density Estimation (KDE).  
 
-- **Biased**: When generating the target for point xi, include xi itself in the kn-NN calculation
-- **Unbiased**: When generating the target for point xi, exclude xi from the kn-NN calculation (leave-one-out)
+## Demo Scripts
+Full Analysis:
 
-The unbiased version is usually better and is what the paper recommends.
+bash
+python demo_script.py --full_analysis
+Hyperparameter Tuning:
+
+bash
+python demo_script.py --hyperparameter_tuning
 
 ## Main Classes
+## KnNNeuralNetwork
+Key Parameters:
 
-### KnNNeuralNetwork
+k1: Controls neighbor count (kn = k1 * sqrt(n)).
+architecture: MLP hidden layers (e.g., (50, 30)).
+max_iter: Training iterations.
 
-This is the main class that implements the algorithm.
+## Methods:
 
-**Key parameters:**
-- `k1`: Controls how many neighbors to use (kn = k1 * sqrt(n))
-- `architecture`: Tuple of hidden layer sizes, like (50, 30)
-- `max_iter`: Maximum training iterations
-- `learning_rate`: Learning rate for the neural network
+fit(X, biased=False): Train on data X.
+predict(X): Return density estimates.
+plot_density_estimate(): Visualize PDF.
+compare_biased_unbiased(): Compare estimator types.
 
-**Main methods:**
-- `fit(X, biased=False)`: Trains the model
-- `predict(X)`: Gets density estimates
-- `plot_density_estimate()`: Visualizes the results
-- `compare_biased_unbiased()`: Compares both versions side by side
+## Support Classes
+ModelEvaluator: Metrics (log-likelihood, normalization checks).
+BaselineComparison: Compare with KDE/histograms.
+HyperparameterTuning: Optimize k1 and architectures.
 
-### Other useful classes
-
-- **ModelEvaluator**: Calculates metrics like ISE, MAE, KL divergence
-- **BaselineComparison**: Compares with Parzen window and histogram methods
-- **HyperparameterTuning**: Automatically finds good parameters
-- **ExperimentRunner**: Runs various experiments and generate reports
-
-### Validation:
-- Built-in checks for non-negative outputs
-- Monitoring of PDF normalization during training
-- Training curve visualization for convergence checking
+## Validation
+Training Curves: Monitor convergence/overfitting (Figure 1).
+PDF Normalization: Ensure ∫PDF ≈ 1.
+Quantitative Metrics: Cross-validation log-likelihood, comparison with baselines.
 
 ## References
+Trentin (2019). Parzen Neural Networks.
+Old Faithful Dataset: R Manual.
 
-This implementation is based on:
-- The Parzen Neural Networks paper (Trentin, 2019)
-- Standard kn-NN density estimation theory
-- Various neural network optimization techniques we learned in class
-
-Work by: Klejda Rrapaj (k.rrapaj@student.unisi.it)
+## Authors:
+Klejda Rrapaj (k.rrapaj@student.unisi.it),
 Sildi Ricku (s.ricku@student.unisi.it)
