@@ -15,7 +15,7 @@ def load_professor_data(data_string):
 
 
 def analyze_professor_data(data):
-    # Run comprehensive analysis on this new dataset
+    # Running comprehensive analysis on this new dataset
     print("\n" + "=" * 60)
     print("Analyzing Professor's Dataset")
     print("=" * 60)
