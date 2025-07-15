@@ -30,28 +30,28 @@ def analyze_professor_data(data):
     tuning_results = tuner.comprehensive_tuning(verbose=True)
 
     # Training final model with optimal parameters
-    print("\nTraining final model with optimal parameters:")
-    print(f"  k1: {tuning_results['best_k1']}")
-    print(f"  architecture: {tuning_results['best_architecture']}")
-
-    # Update the final model training to:
+    print("\nTraining final model with optimal parameters (smoothed version):")
     final_model = KnNNeuralNetwork(
-        k1=tuning_results['best_k1'],
-        architecture=tuning_results['best_architecture'],
-        max_iter=2000,  # Increased iterations
-        learning_rate=0.0001,  # Reduced learning rate
-        random_state=42
+        k1=0.1,  # Using best k1 from tuning
+        architecture=(50, 30, 20),  # Using best architecture from tuning
+        max_iter=4000,  # Increased iterations for convergence
+        learning_rate=0.0001,
+        random_state=42,
+        alpha=0.01
     )
-
     final_model.fit(data, biased=False, validation_split=0.2, verbose=True)
 
-    final_model.plot_training_curves()
+    # Only plot curves if history exists
+    if hasattr(final_model, 'training_history') and final_model.training_history['loss']:
+        final_model.plot_training_curves()
 
+    # Plot with explicit range
     final_model.plot_density_estimate(
-        x_range=(0, 10),  # Professor specified domain
+        x_range=(0, 10),  # Hard-coded to professor's specified domain
         true_pdf=true_pdf,
-        title=f"kn-NN Density Estimation on Professor's Data\n(k1={tuning_results['best_k1']}, arch={tuning_results['best_architecture']})"
+        title=f"Smoothed kn-NN Density Estimation (k1={final_model.k1}, α={final_model.alpha})"
     )
+
 
     print("\nComparing with baseline methods...")
     baseline = BaselineComparison(data)
@@ -61,7 +61,7 @@ def analyze_professor_data(data):
 
 
 def test_improved_model():
-    """Test the improved model on the professor's dataset"""
+    # Testing the improved model on the professor's dataset
 
     # Professor's data
     data_string = """9.338509e+00

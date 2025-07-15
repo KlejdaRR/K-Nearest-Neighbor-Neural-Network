@@ -5,19 +5,21 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
-class KnNNeuralNetwork:
-    # Our implementation of the kn-NN Neural Network for density estimation.
-    # This is based on the paper we discussed in class but with some modifications
-    # we made to get it working properly.
 
-    def __init__(self, k1=1.0, architecture=(100, 50), max_iter=2000,
-                 learning_rate=0.0001, random_state=42, alpha=0.001):
+class KnNNeuralNetwork:
+    def __init__(self, k1=1.0, architecture=(50, 30), max_iter=2000,
+                 learning_rate=0.0001, random_state=42, alpha=0.01):
+        self.training_history = {
+            'loss': [],
+            'validation_loss': []
+        }
+        # Increased alpha
         self.k1 = k1
         self.architecture = architecture
         self.max_iter = max_iter
         self.learning_rate = learning_rate
         self.random_state = random_state
-        self.alpha = alpha  # added L2 regularization
+        self.alpha = alpha  # Stronger L2 regularization
 
         self.mlp = None
         self.scaler = StandardScaler()
@@ -25,31 +27,20 @@ class KnNNeuralNetwork:
         self.targets = None
         self.kn = None
         self.data_range = None
-
-        self.training_history = {
-            'loss': [],
-            'validation_loss': []
-        }
+        self.target_scale = 1.0
 
     def _calculate_kn(self, n):
         kn = max(1, int(self.k1 * np.sqrt(n)))
-        # Cap at reasonable fraction of dataset
-        kn = min(kn, n // 3)
+        kn = min(kn, n // 3)  # Cap at reasonable fraction
         return kn
 
     def _calculate_ball_volume_1d(self, radius):
-        # 1D ball volume with minimum threshold
         return max(2 * radius, 1e-8)
 
     def _generate_knn_targets(self, X, biased=False):
-        # Improved target generation with better stability
         n = len(X)
         self.kn = self._calculate_kn(n)
         targets = np.zeros(n)
-
-        print(f"Generating kn-NN targets with kn={self.kn}, biased={biased}")
-
-        # Stored data range for boundary handling
         self.data_range = (X.min(), X.max())
         data_span = self.data_range[1] - self.data_range[0]
 
@@ -61,29 +52,22 @@ class KnNNeuralNetwork:
                 X_search = np.delete(X, i, axis=0)
                 n_effective = n - 1
 
-            if len(X_search) < self.kn:
-                kn_effective = len(X_search)
-            else:
-                kn_effective = self.kn
+            kn_effective = min(self.kn, len(X_search))
 
             if len(X_search) > 0:
                 nbrs = NearestNeighbors(n_neighbors=kn_effective, metric='euclidean')
                 nbrs.fit(X_search)
-                distances, indices = nbrs.kneighbors(X[i].reshape(1, -1))
-
+                distances, _ = nbrs.kneighbors(X[i].reshape(1, -1))
                 radius = distances[0, -1]
 
-                if radius == 0:
-                    radius = data_span / (10 * n)
-
-                # Added small regularization to prevent extreme values
-                radius = max(radius, data_span / (100 * n))
-
+                # Smoother radius handling
+                radius = max(radius, data_span / (20 * n))  # Larger minimum radius
                 volume = self._calculate_ball_volume_1d(radius)
-                density_estimate = kn_effective / n_effective / volume
+                density_estimate = kn_effective / (n_effective * volume)
 
-                max_reasonable_density = 10 / data_span
-                targets[i] = min(density_estimate, max_reasonable_density)
+                # Clip extreme values
+                max_reasonable_density = 5 / data_span  # Reduced from 10
+                targets[i] = np.clip(density_estimate, 0, max_reasonable_density)
             else:
                 targets[i] = 0
 
@@ -92,36 +76,24 @@ class KnNNeuralNetwork:
     def fit(self, X, biased=False, validation_split=0.2, verbose=True):
         X = np.array(X).reshape(-1, 1)
         self.training_data = X.copy()
-
-        if verbose:
-            print(f"Training Improved kn-NN Neural Network")
-            print(f"Data shape: {X.shape}")
-            print(f"Architecture: {self.architecture}")
-            print(f"k1 parameter: {self.k1}")
-
         targets = self._generate_knn_targets(X, biased=biased)
         self.targets = targets
 
-        # Normalizaztion of targets
-        target_scale = np.std(targets)
-        if target_scale > 0:
-            targets = targets / target_scale
-            self.target_scale = target_scale
-        else:
-            self.target_scale = 1.0
+        # Normalize targets more robustly
+        target_scale = np.std(targets) + 1e-8
+        targets = targets / target_scale
+        self.target_scale = target_scale
 
         X_scaled = self.scaler.fit_transform(X)
 
         if validation_split > 0:
             X_train, X_val, y_train, y_val = train_test_split(
-                X_scaled, targets, test_size=validation_split,
-                random_state=self.random_state
+                X_scaled, targets, test_size=validation_split, random_state=self.random_state
             )
         else:
             X_train, y_train = X_scaled, targets
             X_val, y_val = None, None
 
-        # Improved MLP with better regularization
         self.mlp = MLPRegressor(
             hidden_layer_sizes=self.architecture,
             max_iter=self.max_iter,
@@ -129,50 +101,43 @@ class KnNNeuralNetwork:
             random_state=self.random_state,
             activation='relu',
             solver='adam',
-            alpha=self.alpha,  # L2 regularization
-            validation_fraction=0.1 if validation_split > 0 else 0,
-            early_stopping=True if validation_split > 0 else False,
-            n_iter_no_change=100,  # More patience
-            tol=1e-6  # Tighter tolerance
+            alpha=self.alpha,
+            early_stopping=True,
+            n_iter_no_change=100,
+            tol=1e-6
         )
-
         self.mlp.fit(X_train, y_train)
-
+        # Store training history
         if hasattr(self.mlp, 'loss_curve_'):
             self.training_history['loss'] = self.mlp.loss_curve_
         if hasattr(self.mlp, 'validation_scores_'):
             self.training_history['validation_loss'] = self.mlp.validation_scores_
 
-        if verbose:
-            print(f"Training completed. Final loss: {self.mlp.loss_:.6f}")
-            print(f"Number of iterations: {self.mlp.n_iter_}")
-
     def predict(self, X):
         X = np.array(X).reshape(-1, 1)
         X_scaled = self.scaler.transform(X)
-        predictions = self.mlp.predict(X_scaled)
-
-        predictions = predictions * self.target_scale
-
+        predictions = self.mlp.predict(X_scaled) * self.target_scale
         predictions = np.maximum(predictions, 0)
 
-        # Here we have applied boundary damping to prevent extreme values at edges
+        # Smoother boundary handling
         if self.data_range is not None:
             data_min, data_max = self.data_range
             data_span = data_max - data_min
-            boundary_buffer = 0.1 * data_span
+            boundary_buffer = 0.2 * data_span  # Increased buffer
 
-            outside_mask = (X.flatten() < data_min - boundary_buffer) | \
-                           (X.flatten() > data_max + boundary_buffer)
+            # Apply smoother exponential decay outside range
+            left_mask = X.flatten() < data_min
+            right_mask = X.flatten() > data_max
 
-            if np.any(outside_mask):
-                # Exponential decay outside data range
-                distances_outside = np.minimum(
-                    np.abs(X.flatten() - data_min),
-                    np.abs(X.flatten() - data_max)
-                )
-                damping_factor = np.exp(-distances_outside / (0.5 * data_span))
-                predictions[outside_mask] *= damping_factor[outside_mask]
+            if np.any(left_mask):
+                distances = (data_min - X.flatten()[left_mask]) / data_span
+                damping = np.exp(-5 * distances)  # Smoother decay
+                predictions[left_mask] *= damping
+
+            if np.any(right_mask):
+                distances = (X.flatten()[right_mask] - data_max) / data_span
+                damping = np.exp(-5 * distances)  # Smoother decay
+                predictions[right_mask] *= damping
 
         return predictions
 
